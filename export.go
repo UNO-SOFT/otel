@@ -16,7 +16,14 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
-type Tracer = trace.Tracer
+type (
+	Tracer   = trace.Tracer
+	Provider = trace.Provider
+)
+
+func SetGlobalTraceProvider(provider Provider) { global.SetTraceProvider(provider) }
+func GlobalTraceProvider() Provider            { return global.TraceProvider() }
+func GlobalTracer(name string) Tracer          { return global.Tracer(name) }
 
 var HTTPPropagators = propagation.New(
 	propagation.WithExtractors(trace.DefaultHTTPPropagator(), trace.B3{}),
@@ -30,6 +37,16 @@ func InjectHTTP(ctx context.Context, headers http.Header) {
 	propagation.InjectHTTP(ctx, HTTPPropagators, headers)
 }
 
+// nil sampler means sdktrace.AlwaysSample.
+func LogTraceProvider(Log func(...interface{}) error, sampler sdktrace.Sampler) (Provider, error) {
+	if sampler == nil {
+		sampler = sdktrace.AlwaysSample()
+	}
+	return sdktrace.NewProvider(
+		sdktrace.WithConfig(sdktrace.Config{DefaultSampler: sampler}),
+		sdktrace.WithSyncer(LogExporter{Log: Log}),
+	)
+}
 func LogTracer(Log func(...interface{}) error, name string) Tracer {
 	if Log == nil {
 		return global.Tracer(name)
