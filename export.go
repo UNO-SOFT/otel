@@ -37,6 +37,20 @@ func InjectHTTP(ctx context.Context, headers http.Header) {
 	propagation.InjectHTTP(ctx, HTTPPropagators, headers)
 }
 
+func HTTPMiddleware(tracer Tracer, hndl http.Handler) http.Handler {
+	if tracer == nil {
+		tracer = global.Tracer("github.com/UNO-SOFT/otel")
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := ExtractHTTP(r.Context(), r.Header)
+		tracer.WithSpan(ctx, r.URL.Path, func(ctx context.Context) error {
+			InjectHTTP(ctx, w.Header())
+			hndl.ServeHTTP(w, r)
+			return nil
+		})
+	})
+}
+
 // nil sampler means sdktrace.AlwaysSample.
 func LogTraceProvider(Log func(...interface{}) error, sampler sdktrace.Sampler) (Provider, error) {
 	if sampler == nil {
