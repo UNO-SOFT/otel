@@ -43,11 +43,10 @@ func HTTPMiddleware(tracer Tracer, hndl http.Handler) http.Handler {
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := ExtractHTTP(r.Context(), r.Header)
-		tracer.WithSpan(ctx, r.URL.Path, func(ctx context.Context) error {
-			InjectHTTP(ctx, w.Header())
-			hndl.ServeHTTP(w, r)
-			return nil
-		})
+		ctx, span := tracer.Start(ctx, r.URL.Path)
+		InjectHTTP(ctx, w.Header())
+		hndl.ServeHTTP(w, r)
+		span.End()
 	})
 }
 
