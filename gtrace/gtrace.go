@@ -8,14 +8,14 @@ package gtrace
 import (
 	"context"
 
-	"go.opentelemetry.io/otel/api/kv"
+	grpctrace "go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc"
 	"go.opentelemetry.io/otel/api/trace"
-	"go.opentelemetry.io/otel/instrumentation/grpctrace"
+	"go.opentelemetry.io/otel/label"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 )
 
-func Extract(ctx context.Context, metadata *metadata.MD, opts ...grpctrace.Option) ([]kv.KeyValue, trace.SpanContext) {
+func Extract(ctx context.Context, metadata *metadata.MD, opts ...grpctrace.Option) ([]label.KeyValue, trace.SpanContext) {
 	return grpctrace.Extract(ctx, metadata, opts...)
 }
 
