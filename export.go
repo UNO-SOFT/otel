@@ -9,32 +9,37 @@ import (
 	"context"
 	"net/http"
 
-	"go.opentelemetry.io/otel/api/global"
-	"go.opentelemetry.io/otel/api/propagation"
-	"go.opentelemetry.io/otel/api/trace"
-	setrace "go.opentelemetry.io/otel/sdk/export/trace"
+	global "go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/propagation"
+	exportmetric "go.opentelemetry.io/otel/sdk/export/metric"
+	"go.opentelemetry.io/otel/sdk/export/metric/aggregation"
+	exporttrace "go.opentelemetry.io/otel/sdk/export/trace"
+	"go.opentelemetry.io/otel/sdk/metric/controller/push"
+	"go.opentelemetry.io/otel/sdk/metric/processor/basic"
+	"go.opentelemetry.io/otel/sdk/metric/selector/simple"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type (
 	Tracer   = trace.Tracer
-	Provider = trace.Provider
+	Provider = trace.TracerProvider
 )
 
-func SetGlobalTraceProvider(provider Provider) { global.SetTraceProvider(provider) }
-func GlobalTraceProvider() Provider            { return global.TraceProvider() }
+func SetGlobalTraceProvider(provider Provider) { global.SetTracerProvider(provider) }
+func GlobalTraceProvider() Provider            { return global.GetTracerProvider() }
 func GlobalTracer(name string) Tracer          { return global.Tracer(name) }
 
-var HTTPPropagators = propagation.New(
-	propagation.WithExtractors(trace.DefaultHTTPPropagator(), trace.B3{}),
-	propagation.WithInjectors(trace.DefaultHTTPPropagator(), trace.B3{}),
+var HTTPPropagators = propagation.NewCompositeTextMapPropagator(
+	propagation.TraceContext{}, propagation.Baggage{},
 )
 
 func ExtractHTTP(ctx context.Context, headers http.Header) context.Context {
-	return propagation.ExtractHTTP(ctx, HTTPPropagators, headers)
+	return HTTPPropagators.Extract(ctx, headers)
 }
 func InjectHTTP(ctx context.Context, headers http.Header) {
-	propagation.InjectHTTP(ctx, HTTPPropagators, headers)
+	HTTPPropagators.Inject(ctx, headers)
 }
 
 func HTTPMiddleware(tracer Tracer, hndl http.Handler) http.Handler {
@@ -51,27 +56,34 @@ func HTTPMiddleware(tracer Tracer, hndl http.Handler) http.Handler {
 }
 
 // nil sampler means sdktrace.AlwaysSample.
-func LogTraceProvider(Log func(...interface{}) error, sampler sdktrace.Sampler) (Provider, error) {
-	if sampler == nil {
-		sampler = sdktrace.AlwaysSample()
-	}
-	return sdktrace.NewProvider(
-		sdktrace.WithConfig(sdktrace.Config{DefaultSampler: sampler}),
-		sdktrace.WithSyncer(LogExporter{Log: Log}),
+func LogTraceProvider(Log func(...interface{}) error) (Provider, error) {
+	exporter := LogExporter{Log: Log}
+	tp := sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter))
+	pusher := push.New(
+		basic.New(
+			simple.NewWithExactDistribution(),
+			exporter,
+		),
+		exporter,
 	)
+	pusher.Start()
+	return tp, nil
 }
 func LogTracer(Log func(...interface{}) error, name string) Tracer {
 	if Log == nil {
 		return global.Tracer(name)
 	}
 	exporter := LogExporter{Log: Log}
-	tp, err := sdktrace.NewProvider(
-		sdktrace.WithConfig(sdktrace.Config{DefaultSampler: sdktrace.AlwaysSample()}),
-		sdktrace.WithSyncer(exporter),
+	tp := sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter))
+	pusher := push.New(
+		basic.New(
+			simple.NewWithExactDistribution(),
+			exporter,
+		),
+		exporter,
 	)
-	if err != nil {
-		panic(err)
-	}
+	pusher.Start()
+
 	return tp.Tracer(name)
 }
 
@@ -80,48 +92,56 @@ type LogExporter struct {
 }
 
 // ExportSpans writes SpanData in json format to stdout.
-func (e LogExporter) ExportSpans(ctx context.Context, data []*setrace.SpanData) {
+func (e LogExporter) ExportSpans(ctx context.Context, data []*exporttrace.SpanData) error {
+	var firstErr error
 	for _, d := range data {
-		e.ExportSpan(ctx, d)
+		/*
+		   type SpanData struct {
+		   	SpanContext  apitrace.SpanContext
+		   	ParentSpanID apitrace.SpanID
+		   	SpanKind     apitrace.SpanKind
+		   	Name         string
+		   	StartTime    time.Time
+		   	// The wall clock time of EndTime will be adjusted to always be offset
+		   	// from StartTime by the duration of the span.
+		   	EndTime                  time.Time
+		   	Attributes               []kv.KeyValue
+		   	MessageEvents            []Event
+		   	Links                    []apitrace.Link
+		   	StatusCode               codes.Code
+		   	StatusMessage            string
+		   	HasRemoteParent          bool
+		   	DroppedAttributeCount    int
+		   	DroppedMessageEventCount int
+		   	DroppedLinkCount         int
+
+		   	// ChildSpanCount holds the number of child span created for this span.
+		   	ChildSpanCount int
+
+		   	// Resource contains attributes representing an entity that produced this span.
+		   	Resource *resource.Resource
+
+		   	// InstrumentationLibrary defines the instrumentation library used to
+		   	// providing instrumentation.
+		   	InstrumentationLibrary instrumentation.Library
+		   }
+		*/
+		if err := e.Log("msg", "trace", "parent", d.ParentSpanID, "kind", d.SpanKind, "name", d.Name,
+			"spanID", d.SpanContext.SpanID, "traceID", d.SpanContext.TraceID, "start", d.StartTime, "end", d.EndTime,
+			"attrs", d.Attributes, "events", d.MessageEvents, "links", d.Links,
+			"statusCode", d.StatusCode, "statusMsg", d.StatusMessage,
+		); err != nil && firstErr == nil {
+			firstErr = err
+		}
 	}
+	return firstErr
 }
-
-// ExportSpan writes a SpanData in json format to stdout.
-func (e LogExporter) ExportSpan(ctx context.Context, data *setrace.SpanData) {
-	/*
-	   type SpanData struct {
-	   	SpanContext  apitrace.SpanContext
-	   	ParentSpanID apitrace.SpanID
-	   	SpanKind     apitrace.SpanKind
-	   	Name         string
-	   	StartTime    time.Time
-	   	// The wall clock time of EndTime will be adjusted to always be offset
-	   	// from StartTime by the duration of the span.
-	   	EndTime                  time.Time
-	   	Attributes               []kv.KeyValue
-	   	MessageEvents            []Event
-	   	Links                    []apitrace.Link
-	   	StatusCode               codes.Code
-	   	StatusMessage            string
-	   	HasRemoteParent          bool
-	   	DroppedAttributeCount    int
-	   	DroppedMessageEventCount int
-	   	DroppedLinkCount         int
-
-	   	// ChildSpanCount holds the number of child span created for this span.
-	   	ChildSpanCount int
-
-	   	// Resource contains attributes representing an entity that produced this span.
-	   	Resource *resource.Resource
-
-	   	// InstrumentationLibrary defines the instrumentation library used to
-	   	// providing instrumentation.
-	   	InstrumentationLibrary instrumentation.Library
-	   }
-	*/
-	e.Log("msg", "trace", "parent", data.ParentSpanID, "kind", data.SpanKind, "name", data.Name,
-		"spanID", data.SpanContext.SpanID, "traceID", data.SpanContext.TraceID, "start", data.StartTime, "end", data.EndTime,
-		"attrs", data.Attributes, "events", data.MessageEvents, "links", data.Links,
-		"statusCode", data.StatusCode, "statusMsg", data.StatusMessage,
-	)
+func (e LogExporter) Export(ctx context.Context, checkpointSet exportmetric.CheckpointSet) error {
+	return checkpointSet.ForEach(exportmetric.StatelessExportKindSelector(), func(rec exportmetric.Record) error {
+		return e.Log("msg", "labels", rec.Labels(), "resource", rec.Resource(), "start", rec.StartTime(), "end", rec.EndTime(), "agg", rec.Aggregation())
+	})
 }
+func (e LogExporter) ExportKindFor(desc *metric.Descriptor, kind aggregation.Kind) exportmetric.ExportKind {
+	return exportmetric.StatelessExportKindSelector().ExportKindFor(desc, kind)
+}
+func (e LogExporter) Shutdown(ctx context.Context) error { return nil }
