@@ -67,28 +67,17 @@ func LogTraceProvider(Log func(...interface{}) error) (Provider, error) {
 		exporter,
 	)
 	pusher.Start()
+	exporter.stop = pusher.Stop
 	return tp, nil
 }
 func LogTracer(Log func(...interface{}) error, name string) Tracer {
-	if Log == nil {
-		return global.Tracer(name)
-	}
-	exporter := LogExporter{Log: Log}
-	tp := sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter))
-	pusher := push.New(
-		basic.New(
-			simple.NewWithExactDistribution(),
-			exporter,
-		),
-		exporter,
-	)
-	pusher.Start()
-
+	tp, _ := LogTraceProvider(Log)
 	return tp.Tracer(name)
 }
 
 type LogExporter struct {
-	Log func(...interface{}) error
+	Log  func(...interface{}) error
+	stop func()
 }
 
 // ExportSpans writes SpanData in json format to stdout.
@@ -144,4 +133,9 @@ func (e LogExporter) Export(ctx context.Context, checkpointSet exportmetric.Chec
 func (e LogExporter) ExportKindFor(desc *metric.Descriptor, kind aggregation.Kind) exportmetric.ExportKind {
 	return exportmetric.StatelessExportKindSelector().ExportKindFor(desc, kind)
 }
-func (e LogExporter) Shutdown(ctx context.Context) error { return nil }
+func (e LogExporter) Shutdown(ctx context.Context) error {
+	if e.stop != nil {
+		e.stop()
+	}
+	return nil
+}
