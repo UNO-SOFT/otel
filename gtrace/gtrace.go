@@ -9,13 +9,13 @@ import (
 	"context"
 
 	grpctrace "go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
-	"go.opentelemetry.io/otel/label"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 )
 
-func Extract(ctx context.Context, metadata *metadata.MD, opts ...grpctrace.Option) ([]label.KeyValue, trace.SpanContext) {
+func Extract(ctx context.Context, metadata *metadata.MD, opts ...grpctrace.Option) ([]attribute.KeyValue, trace.SpanContext) {
 	return grpctrace.Extract(ctx, metadata, opts...)
 }
 

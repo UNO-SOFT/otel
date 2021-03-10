@@ -1,4 +1,4 @@
-// Copyright 2020 Tamás Gulácsi
+// Copyright 2021 Tamás Gulácsi
 //
 //
 // SPDX-License-Identifier: Apache-2.0
@@ -15,8 +15,9 @@ import (
 	exportmetric "go.opentelemetry.io/otel/sdk/export/metric"
 	"go.opentelemetry.io/otel/sdk/export/metric/aggregation"
 	exporttrace "go.opentelemetry.io/otel/sdk/export/trace"
-	"go.opentelemetry.io/otel/sdk/metric/controller/push"
-	"go.opentelemetry.io/otel/sdk/metric/processor/basic"
+	"go.opentelemetry.io/otel/sdk/metric/controller/basic"
+	ctrlbasic "go.opentelemetry.io/otel/sdk/metric/controller/basic"
+	procbasic "go.opentelemetry.io/otel/sdk/metric/processor/basic"
 	"go.opentelemetry.io/otel/sdk/metric/selector/simple"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
@@ -36,10 +37,10 @@ var HTTPPropagators = propagation.NewCompositeTextMapPropagator(
 )
 
 func ExtractHTTP(ctx context.Context, headers http.Header) context.Context {
-	return HTTPPropagators.Extract(ctx, headers)
+	return HTTPPropagators.Extract(ctx, propagation.HeaderCarrier(headers))
 }
 func InjectHTTP(ctx context.Context, headers http.Header) {
-	HTTPPropagators.Inject(ctx, headers)
+	HTTPPropagators.Inject(ctx, propagation.HeaderCarrier(headers))
 }
 
 func HTTPMiddleware(tracer Tracer, hndl http.Handler) http.Handler {
@@ -59,15 +60,16 @@ func HTTPMiddleware(tracer Tracer, hndl http.Handler) http.Handler {
 func LogTraceProvider(Log func(...interface{}) error) (Provider, error) {
 	exporter := LogExporter{Log: Log}
 	tp := sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter))
-	pusher := push.New(
-		basic.New(
+	pusher := ctrlbasic.New(
+		procbasic.New(
 			simple.NewWithExactDistribution(),
 			exporter,
 		),
-		exporter,
+		basic.WithPusher(exporter),
 	)
-	pusher.Start()
-	exporter.stop = pusher.Stop
+	ctx := context.Background()
+	pusher.Start(ctx)
+	exporter.stop = func() { pusher.Stop(ctx) }
 	return tp, nil
 }
 func LogTracer(Log func(...interface{}) error, name string) Tracer {
@@ -81,7 +83,7 @@ type LogExporter struct {
 }
 
 // ExportSpans writes SpanData in json format to stdout.
-func (e LogExporter) ExportSpans(ctx context.Context, data []*exporttrace.SpanData) error {
+func (e LogExporter) ExportSpans(ctx context.Context, data []*exporttrace.SpanSnapshot) error {
 	var firstErr error
 	for _, d := range data {
 		/*
