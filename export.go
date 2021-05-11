@@ -14,8 +14,6 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	exportmetric "go.opentelemetry.io/otel/sdk/export/metric"
 	"go.opentelemetry.io/otel/sdk/export/metric/aggregation"
-	exporttrace "go.opentelemetry.io/otel/sdk/export/trace"
-	"go.opentelemetry.io/otel/sdk/metric/controller/basic"
 	ctrlbasic "go.opentelemetry.io/otel/sdk/metric/controller/basic"
 	procbasic "go.opentelemetry.io/otel/sdk/metric/processor/basic"
 	"go.opentelemetry.io/otel/sdk/metric/selector/simple"
@@ -65,7 +63,7 @@ func LogTraceProvider(Log func(...interface{}) error) (Provider, error) {
 			simple.NewWithExactDistribution(),
 			exporter,
 		),
-		basic.WithPusher(exporter),
+		ctrlbasic.WithExporter(exporter),
 	)
 	ctx := context.Background()
 	pusher.Start(ctx)
@@ -83,7 +81,7 @@ type LogExporter struct {
 }
 
 // ExportSpans writes SpanData in json format to stdout.
-func (e LogExporter) ExportSpans(ctx context.Context, data []*exporttrace.SpanSnapshot) error {
+func (e LogExporter) ExportSpans(ctx context.Context, data []*sdktrace.SpanSnapshot) error {
 	var firstErr error
 	for _, d := range data {
 		/*
@@ -117,7 +115,7 @@ func (e LogExporter) ExportSpans(ctx context.Context, data []*exporttrace.SpanSn
 		   	InstrumentationLibrary instrumentation.Library
 		   }
 		*/
-		if err := e.Log("msg", "trace", "parent", d.ParentSpanID, "kind", d.SpanKind, "name", d.Name,
+		if err := e.Log("msg", "trace", "parent", d.Parent.SpanID(), "kind", d.SpanKind, "name", d.Name,
 			"spanID", d.SpanContext.SpanID, "traceID", d.SpanContext.TraceID, "start", d.StartTime, "end", d.EndTime,
 			"attrs", d.Attributes, "events", d.MessageEvents, "links", d.Links,
 			"statusCode", d.StatusCode, "statusMsg", d.StatusMessage,
