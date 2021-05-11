@@ -11,6 +11,7 @@ import (
 	grpctrace "go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/propagation"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 )
@@ -34,4 +35,12 @@ func UnaryClientInterceptor(opts ...grpctrace.Option) grpc.UnaryClientIntercepto
 }
 func UnaryServerInterceptor(opts ...grpctrace.Option) grpc.UnaryServerInterceptor {
 	return grpctrace.UnaryServerInterceptor(opts...)
+}
+
+func WithPropagators(p propagation.TextMapPropagator) grpctrace.Option {
+	return grpctrace.WithPropagators(p)
+}
+
+func WithTracerProvider(tp trace.TracerProvider) grpctrace.Option {
+	return grpctrace.WithTracerProvider(tp)
 }
