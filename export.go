@@ -116,7 +116,8 @@ func (e LogExporter) ExportSpans(ctx context.Context, data []*sdktrace.SpanSnaps
 		   }
 		*/
 		if err := e.Log("msg", "trace", "parent", d.Parent.SpanID(), "kind", d.SpanKind, "name", d.Name,
-			"spanID", d.SpanContext.SpanID, "traceID", d.SpanContext.TraceID, "start", d.StartTime, "end", d.EndTime,
+			"spanID", d.SpanContext.SpanID(), "traceID", d.SpanContext.TraceID(),
+			"start", d.StartTime, "end", d.EndTime,
 			"attrs", d.Attributes, "events", d.MessageEvents, "links", d.Links,
 			"statusCode", d.StatusCode, "statusMsg", d.StatusMessage,
 		); err != nil && firstErr == nil {
