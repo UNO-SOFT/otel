@@ -81,7 +81,7 @@ type LogExporter struct {
 }
 
 // ExportSpans writes SpanData in json format to stdout.
-func (e LogExporter) ExportSpans(ctx context.Context, data []*sdktrace.SpanSnapshot) error {
+func (e LogExporter) ExportSpans(ctx context.Context, data []sdktrace.ReadOnlySpan) error {
 	var firstErr error
 	for _, d := range data {
 		/*
@@ -115,11 +115,11 @@ func (e LogExporter) ExportSpans(ctx context.Context, data []*sdktrace.SpanSnaps
 		   	InstrumentationLibrary instrumentation.Library
 		   }
 		*/
-		if err := e.Log("msg", "trace", "parent", d.Parent.SpanID(), "kind", d.SpanKind, "name", d.Name,
-			"spanID", d.SpanContext.SpanID(), "traceID", d.SpanContext.TraceID(),
-			"start", d.StartTime, "end", d.EndTime,
-			"attrs", d.Attributes, "events", d.MessageEvents, "links", d.Links,
-			"statusCode", d.StatusCode, "statusMsg", d.StatusMessage,
+		if err := e.Log("msg", "trace", "parent", d.Parent().SpanID(), "kind", d.SpanKind, "name", d.Name,
+			"spanID", d.SpanContext().SpanID(), "traceID", d.SpanContext().TraceID(),
+			"start", d.StartTime(), "end", d.EndTime(),
+			"attrs", d.Attributes(), "events", d.Events(), "links", d.Links(),
+			"statusCode", d.Status().Code, "statusMsg", d.Status().Description,
 		); err != nil && firstErr == nil {
 			firstErr = err
 		}

@@ -9,14 +9,14 @@ import (
 	"context"
 
 	grpctrace "go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
-	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/baggage"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 )
 
-func Extract(ctx context.Context, metadata *metadata.MD, opts ...grpctrace.Option) ([]attribute.KeyValue, trace.SpanContext) {
+func Extract(ctx context.Context, metadata *metadata.MD, opts ...grpctrace.Option) (baggage.Baggage, trace.SpanContext) {
 	return grpctrace.Extract(ctx, metadata, opts...)
 }
 
