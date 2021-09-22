@@ -17,6 +17,7 @@ import (
 	ctrlbasic "go.opentelemetry.io/otel/sdk/metric/controller/basic"
 	procbasic "go.opentelemetry.io/otel/sdk/metric/processor/basic"
 	"go.opentelemetry.io/otel/sdk/metric/selector/simple"
+	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -126,9 +127,9 @@ func (e LogExporter) ExportSpans(ctx context.Context, data []sdktrace.ReadOnlySp
 	}
 	return firstErr
 }
-func (e LogExporter) Export(ctx context.Context, checkpointSet exportmetric.CheckpointSet) error {
+func (e LogExporter) Export(ctx context.Context, resource *resource.Resource, checkpointSet exportmetric.CheckpointSet) error {
 	return checkpointSet.ForEach(exportmetric.StatelessExportKindSelector(), func(rec exportmetric.Record) error {
-		return e.Log("msg", "labels", rec.Labels(), "resource", rec.Resource(), "start", rec.StartTime(), "end", rec.EndTime(), "agg", rec.Aggregation())
+		return e.Log("msg", "labels", rec.Labels(), "resource", resource, "start", rec.StartTime(), "end", rec.EndTime(), "agg", rec.Aggregation())
 	})
 }
 func (e LogExporter) ExportKindFor(desc *metric.Descriptor, kind aggregation.Kind) exportmetric.ExportKind {
