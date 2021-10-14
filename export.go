@@ -14,6 +14,7 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	exportmetric "go.opentelemetry.io/otel/sdk/export/metric"
 	"go.opentelemetry.io/otel/sdk/export/metric/aggregation"
+	"go.opentelemetry.io/otel/sdk/instrumentation"
 	ctrlbasic "go.opentelemetry.io/otel/sdk/metric/controller/basic"
 	procbasic "go.opentelemetry.io/otel/sdk/metric/processor/basic"
 	"go.opentelemetry.io/otel/sdk/metric/selector/simple"
@@ -60,7 +61,7 @@ func LogTraceProvider(Log func(...interface{}) error) (Provider, error) {
 	exporter := LogExporter{Log: Log}
 	tp := sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter))
 	pusher := ctrlbasic.New(
-		procbasic.New(
+		procbasic.NewFactory(
 			simple.NewWithExactDistribution(),
 			exporter,
 		),
@@ -127,9 +128,11 @@ func (e LogExporter) ExportSpans(ctx context.Context, data []sdktrace.ReadOnlySp
 	}
 	return firstErr
 }
-func (e LogExporter) Export(ctx context.Context, resource *resource.Resource, checkpointSet exportmetric.CheckpointSet) error {
-	return checkpointSet.ForEach(exportmetric.StatelessExportKindSelector(), func(rec exportmetric.Record) error {
-		return e.Log("msg", "labels", rec.Labels(), "resource", resource, "start", rec.StartTime(), "end", rec.EndTime(), "agg", rec.Aggregation())
+func (e LogExporter) Export(ctx context.Context, resource *resource.Resource, checkpointSet exportmetric.InstrumentationLibraryReader) error {
+	return checkpointSet.ForEach(func(lib instrumentation.Library, r exportmetric.Reader) error {
+		return r.ForEach(exportmetric.StatelessExportKindSelector(), func(rec exportmetric.Record) error {
+			return e.Log("msg", "labels", rec.Labels(), "resource", resource, "start", rec.StartTime(), "end", rec.EndTime(), "agg", rec.Aggregation())
+		})
 	})
 }
 func (e LogExporter) ExportKindFor(desc *metric.Descriptor, kind aggregation.Kind) exportmetric.ExportKind {
