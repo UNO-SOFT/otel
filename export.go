@@ -147,7 +147,7 @@ func (e LogExporter) ExportSpans(ctx context.Context, data []sdktrace.ReadOnlySp
 			evts = append(evts, Event{Name: e.Name, Time: e.Time, Attributes: eAttrs})
 		}
 		if err := e.Log("msg", "trace", "parent", d.Parent().SpanID(),
-			"kind", d.SpanKind(), "name", d.Name(),
+			"kind", d.SpanKind().String(), "name", d.Name(),
 			"spanID", d.SpanContext().SpanID(), "traceID", d.SpanContext().TraceID(),
 			"start", d.StartTime(), "end", d.EndTime(),
 			"attrs", attrs, "events", evts, "links", d.Links(),
