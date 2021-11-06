@@ -8,6 +8,7 @@ package otel
 import (
 	"context"
 	"net/http"
+	"time"
 
 	global "go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
@@ -68,9 +69,9 @@ func LogTraceProvider(Log func(...interface{}) error) (Provider, error) {
 		ctrlbasic.WithExporter(exporter),
 	)
 	ctx := context.Background()
-	pusher.Start(ctx)
-	exporter.stop = func() { pusher.Stop(ctx) }
-	return tp, nil
+	err := pusher.Start(ctx)
+	exporter.stop = func() error { return pusher.Stop(ctx) }
+	return tp, err
 }
 func LogTracer(Log func(...interface{}) error, name string) Tracer {
 	tp, _ := LogTraceProvider(Log)
@@ -79,12 +80,20 @@ func LogTracer(Log func(...interface{}) error, name string) Tracer {
 
 type LogExporter struct {
 	Log  func(...interface{}) error
-	stop func()
+	stop func() error
 }
 
 // ExportSpans writes SpanData in json format to stdout.
 func (e LogExporter) ExportSpans(ctx context.Context, data []sdktrace.ReadOnlySpan) error {
 	var firstErr error
+	attrs := make(map[string]interface{})
+	type Event struct {
+		Name       string
+		Time       time.Time
+		Attributes map[string]interface{}
+	}
+	var evts []Event
+
 	for _, d := range data {
 		/*
 		   type SpanData struct {
@@ -117,10 +126,30 @@ func (e LogExporter) ExportSpans(ctx context.Context, data []sdktrace.ReadOnlySp
 		   	InstrumentationLibrary instrumentation.Library
 		   }
 		*/
+		attributes := d.Attributes()
+		for k := range attrs {
+			delete(attrs, k)
+		}
+		for _, a := range attributes {
+			attrs[string(a.Key)] = a.Value.AsInterface()
+		}
+		events := d.Events()
+		if cap(evts) < len(events) {
+			evts = make([]Event, len(events))
+		} else {
+			evts = evts[:len(events)]
+		}
+		for _, e := range events {
+			eAttrs := make(map[string]interface{})
+			for _, a := range e.Attributes {
+				eAttrs[string(a.Key)] = a.Value.AsInterface()
+			}
+			evts = append(evts, Event{Name: e.Name, Time: e.Time, Attributes: eAttrs})
+		}
 		if err := e.Log("msg", "trace", "parent", d.Parent().SpanID(), "kind", d.SpanKind, "name", d.Name,
 			"spanID", d.SpanContext().SpanID(), "traceID", d.SpanContext().TraceID(),
 			"start", d.StartTime(), "end", d.EndTime(),
-			"attrs", d.Attributes(), "events", d.Events(), "links", d.Links(),
+			"attrs", attrs, "events", evts, "links", d.Links(),
 			"statusCode", d.Status().Code, "statusMsg", d.Status().Description,
 		); err != nil && firstErr == nil {
 			firstErr = err
@@ -140,7 +169,7 @@ func (e LogExporter) ExportKindFor(desc *metric.Descriptor, kind aggregation.Kin
 }
 func (e LogExporter) Shutdown(ctx context.Context) error {
 	if e.stop != nil {
-		e.stop()
+		return e.stop()
 	}
 	return nil
 }
