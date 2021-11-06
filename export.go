@@ -135,9 +135,9 @@ func (e LogExporter) ExportSpans(ctx context.Context, data []sdktrace.ReadOnlySp
 		}
 		events := d.Events()
 		if cap(evts) < len(events) {
-			evts = make([]Event, len(events))
+			evts = make([]Event, 0, len(events))
 		} else {
-			evts = evts[:len(events)]
+			evts = evts[:0]
 		}
 		for _, e := range events {
 			eAttrs := make(map[string]interface{})
@@ -146,7 +146,8 @@ func (e LogExporter) ExportSpans(ctx context.Context, data []sdktrace.ReadOnlySp
 			}
 			evts = append(evts, Event{Name: e.Name, Time: e.Time, Attributes: eAttrs})
 		}
-		if err := e.Log("msg", "trace", "parent", d.Parent().SpanID(), "kind", d.SpanKind, "name", d.Name,
+		if err := e.Log("msg", "trace", "parent", d.Parent().SpanID(),
+			"kind", d.SpanKind(), "name", d.Name(),
 			"spanID", d.SpanContext().SpanID(), "traceID", d.SpanContext().TraceID(),
 			"start", d.StartTime(), "end", d.EndTime(),
 			"attrs", attrs, "events", evts, "links", d.Links(),
