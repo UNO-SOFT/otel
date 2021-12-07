@@ -103,16 +103,14 @@ func (e *LogExporter) ExportSpans(ctx context.Context, data []sdktrace.ReadOnlyS
 	if err := e.traceExporter.ExportSpans(ctx, data); err != nil {
 		return err
 	}
-	e.Log("trace", json.RawMessage(e.traceBuf.Bytes()))
-	return nil
+	return e.Log("trace", json.RawMessage(e.traceBuf.Bytes()))
 }
 func (e *LogExporter) Export(ctx context.Context, resource *resource.Resource, checkpointSet exportmetric.InstrumentationLibraryReader) error {
 	e.metricBuf.Reset()
 	if err := e.metricExporter.Export(ctx, resource, checkpointSet); err != nil {
 		return err
 	}
-	e.Log("metric", json.RawMessage(e.metricBuf.Bytes()))
-	return nil
+	return e.Log("metric", json.RawMessage(e.metricBuf.Bytes()))
 }
 
 // TemporalitySelector is a sub-interface of Exporter used to indicate whether the Processor should compute Delta or Cumulative Aggregations.
@@ -122,11 +120,14 @@ func (e *LogExporter) TemporalityFor(desc *metricapi.Descriptor, kind aggregatio
 func (e *LogExporter) Shutdown(ctx context.Context) error {
 	stop := e.stop
 	e.stop = nil
+	var err error
 	if e.traceExporter != nil {
-		e.traceExporter.Shutdown(ctx)
+		err = e.traceExporter.Shutdown(ctx)
 	}
 	if stop != nil {
-		return e.stop()
+		if stopErr := e.stop(); stopErr != nil && err == nil {
+			err = stopErr
+		}
 	}
-	return nil
+	return err
 }
