@@ -6,22 +6,25 @@
 package otel
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
-	"time"
 
 	global "go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/metric"
+	metricapi "go.opentelemetry.io/otel/metric/sdkapi"
 	"go.opentelemetry.io/otel/propagation"
 	exportmetric "go.opentelemetry.io/otel/sdk/export/metric"
 	"go.opentelemetry.io/otel/sdk/export/metric/aggregation"
-	"go.opentelemetry.io/otel/sdk/instrumentation"
 	ctrlbasic "go.opentelemetry.io/otel/sdk/metric/controller/basic"
 	procbasic "go.opentelemetry.io/otel/sdk/metric/processor/basic"
 	"go.opentelemetry.io/otel/sdk/metric/selector/simple"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
+
+	"go.opentelemetry.io/otel/exporters/stdout/stdoutmetric"
+	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
 )
 
 type (
@@ -59,7 +62,14 @@ func HTTPMiddleware(tracer Tracer, hndl http.Handler) http.Handler {
 
 // nil sampler means sdktrace.AlwaysSample.
 func LogTraceProvider(Log func(...interface{}) error) (Provider, error) {
-	exporter := LogExporter{Log: Log}
+	exporter := &LogExporter{Log: Log}
+	var err error
+	if exporter.traceExporter, err = stdouttrace.New(stdouttrace.WithWriter(&exporter.traceBuf)); err != nil {
+		return nil, err
+	}
+	if exporter.metricExporter, err = stdoutmetric.New(stdoutmetric.WithWriter(&exporter.metricBuf)); err != nil {
+		return nil, err
+	}
 	tp := sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter))
 	pusher := ctrlbasic.New(
 		procbasic.NewFactory(
@@ -69,7 +79,7 @@ func LogTraceProvider(Log func(...interface{}) error) (Provider, error) {
 		ctrlbasic.WithExporter(exporter),
 	)
 	ctx := context.Background()
-	err := pusher.Start(ctx)
+	err = pusher.Start(ctx)
 	exporter.stop = func() error { return pusher.Stop(ctx) }
 	return tp, err
 }
@@ -79,97 +89,43 @@ func LogTracer(Log func(...interface{}) error, name string) Tracer {
 }
 
 type LogExporter struct {
-	Log  func(...interface{}) error
-	stop func() error
+	Log            func(...interface{}) error
+	stop           func() error
+	traceBuf       bytes.Buffer
+	traceExporter  *stdouttrace.Exporter
+	metricBuf      bytes.Buffer
+	metricExporter *stdoutmetric.Exporter
 }
 
 // ExportSpans writes SpanData in json format to stdout.
-func (e LogExporter) ExportSpans(ctx context.Context, data []sdktrace.ReadOnlySpan) error {
-	var firstErr error
-	attrs := make(map[string]interface{})
-	type Event struct {
-		Name       string
-		Time       time.Time
-		Attributes map[string]interface{}
+func (e *LogExporter) ExportSpans(ctx context.Context, data []sdktrace.ReadOnlySpan) error {
+	e.traceBuf.Reset()
+	if err := e.traceExporter.ExportSpans(ctx, data); err != nil {
+		return err
 	}
-	var evts []Event
-
-	for _, d := range data {
-		/*
-		   type SpanData struct {
-		   	SpanContext  apitrace.SpanContext
-		   	ParentSpanID apitrace.SpanID
-		   	SpanKind     apitrace.SpanKind
-		   	Name         string
-		   	StartTime    time.Time
-		   	// The wall clock time of EndTime will be adjusted to always be offset
-		   	// from StartTime by the duration of the span.
-		   	EndTime                  time.Time
-		   	Attributes               []kv.KeyValue
-		   	MessageEvents            []Event
-		   	Links                    []apitrace.Link
-		   	StatusCode               codes.Code
-		   	StatusMessage            string
-		   	HasRemoteParent          bool
-		   	DroppedAttributeCount    int
-		   	DroppedMessageEventCount int
-		   	DroppedLinkCount         int
-
-		   	// ChildSpanCount holds the number of child span created for this span.
-		   	ChildSpanCount int
-
-		   	// Resource contains attributes representing an entity that produced this span.
-		   	Resource *resource.Resource
-
-		   	// InstrumentationLibrary defines the instrumentation library used to
-		   	// providing instrumentation.
-		   	InstrumentationLibrary instrumentation.Library
-		   }
-		*/
-		attributes := d.Attributes()
-		for k := range attrs {
-			delete(attrs, k)
-		}
-		for _, a := range attributes {
-			attrs[string(a.Key)] = a.Value.AsInterface()
-		}
-		events := d.Events()
-		if cap(evts) < len(events) {
-			evts = make([]Event, 0, len(events))
-		} else {
-			evts = evts[:0]
-		}
-		for _, e := range events {
-			eAttrs := make(map[string]interface{})
-			for _, a := range e.Attributes {
-				eAttrs[string(a.Key)] = a.Value.AsInterface()
-			}
-			evts = append(evts, Event{Name: e.Name, Time: e.Time, Attributes: eAttrs})
-		}
-		if err := e.Log("msg", "trace", "parent", d.Parent().SpanID(),
-			"kind", d.SpanKind().String(), "name", d.Name(),
-			"spanID", d.SpanContext().SpanID(), "traceID", d.SpanContext().TraceID(),
-			"start", d.StartTime(), "end", d.EndTime(),
-			"attrs", attrs, "events", evts, "links", d.Links(),
-			"statusCode", d.Status().Code, "statusMsg", d.Status().Description,
-		); err != nil && firstErr == nil {
-			firstErr = err
-		}
+	e.Log("trace", json.RawMessage(e.traceBuf.Bytes()))
+	return nil
+}
+func (e *LogExporter) Export(ctx context.Context, resource *resource.Resource, checkpointSet exportmetric.InstrumentationLibraryReader) error {
+	e.metricBuf.Reset()
+	if err := e.metricExporter.Export(ctx, resource, checkpointSet); err != nil {
+		return err
 	}
-	return firstErr
+	e.Log("metric", json.RawMessage(e.metricBuf.Bytes()))
+	return nil
 }
-func (e LogExporter) Export(ctx context.Context, resource *resource.Resource, checkpointSet exportmetric.InstrumentationLibraryReader) error {
-	return checkpointSet.ForEach(func(lib instrumentation.Library, r exportmetric.Reader) error {
-		return r.ForEach(exportmetric.StatelessExportKindSelector(), func(rec exportmetric.Record) error {
-			return e.Log("msg", "labels", rec.Labels(), "resource", resource, "start", rec.StartTime(), "end", rec.EndTime(), "agg", rec.Aggregation())
-		})
-	})
+
+// TemporalitySelector is a sub-interface of Exporter used to indicate whether the Processor should compute Delta or Cumulative Aggregations.
+func (e *LogExporter) TemporalityFor(desc *metricapi.Descriptor, kind aggregation.Kind) aggregation.Temporality {
+	return e.metricExporter.TemporalityFor(desc, kind)
 }
-func (e LogExporter) ExportKindFor(desc *metric.Descriptor, kind aggregation.Kind) exportmetric.ExportKind {
-	return exportmetric.StatelessExportKindSelector().ExportKindFor(desc, kind)
-}
-func (e LogExporter) Shutdown(ctx context.Context) error {
-	if e.stop != nil {
+func (e *LogExporter) Shutdown(ctx context.Context) error {
+	stop := e.stop
+	e.stop = nil
+	if e.traceExporter != nil {
+		e.traceExporter.Shutdown(ctx)
+	}
+	if stop != nil {
 		return e.stop()
 	}
 	return nil
