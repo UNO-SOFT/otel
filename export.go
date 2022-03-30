@@ -1,4 +1,4 @@
-// Copyright 2021 Tamás Gulácsi
+// Copyright 2021, 2022 Tamás Gulácsi
 //
 //
 // SPDX-License-Identifier: Apache-2.0
@@ -12,10 +12,10 @@ import (
 	"net/http"
 
 	global "go.opentelemetry.io/otel"
-	metricapi "go.opentelemetry.io/otel/metric/sdkapi"
+	"go.opentelemetry.io/otel/sdk/metric/sdkapi"
 	"go.opentelemetry.io/otel/propagation"
-	exportmetric "go.opentelemetry.io/otel/sdk/export/metric"
-	"go.opentelemetry.io/otel/sdk/export/metric/aggregation"
+	"go.opentelemetry.io/otel/sdk/metric/export"
+	"go.opentelemetry.io/otel/sdk/metric/export/aggregation"
 	ctrlbasic "go.opentelemetry.io/otel/sdk/metric/controller/basic"
 	procbasic "go.opentelemetry.io/otel/sdk/metric/processor/basic"
 	"go.opentelemetry.io/otel/sdk/metric/selector/simple"
@@ -73,7 +73,7 @@ func LogTraceProvider(Log func(...interface{}) error) (Provider, error) {
 	tp := sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter))
 	pusher := ctrlbasic.New(
 		procbasic.NewFactory(
-			simple.NewWithExactDistribution(),
+			simple.NewWithHistogramDistribution(),
 			exporter,
 		),
 		ctrlbasic.WithExporter(exporter),
@@ -97,6 +97,8 @@ type LogExporter struct {
 	metricExporter *stdoutmetric.Exporter
 }
 
+var _ export.Exporter= ((*LogExporter)(nil))
+
 // ExportSpans writes SpanData in json format to stdout.
 func (e *LogExporter) ExportSpans(ctx context.Context, data []sdktrace.ReadOnlySpan) error {
 	e.traceBuf.Reset()
@@ -105,7 +107,7 @@ func (e *LogExporter) ExportSpans(ctx context.Context, data []sdktrace.ReadOnlyS
 	}
 	return e.Log("trace", json.RawMessage(e.traceBuf.Bytes()))
 }
-func (e *LogExporter) Export(ctx context.Context, resource *resource.Resource, checkpointSet exportmetric.InstrumentationLibraryReader) error {
+func (e *LogExporter) Export(ctx context.Context, resource *resource.Resource, checkpointSet export.InstrumentationLibraryReader) error {
 	e.metricBuf.Reset()
 	if err := e.metricExporter.Export(ctx, resource, checkpointSet); err != nil {
 		return err
@@ -114,7 +116,7 @@ func (e *LogExporter) Export(ctx context.Context, resource *resource.Resource, c
 }
 
 // TemporalitySelector is a sub-interface of Exporter used to indicate whether the Processor should compute Delta or Cumulative Aggregations.
-func (e *LogExporter) TemporalityFor(desc *metricapi.Descriptor, kind aggregation.Kind) aggregation.Temporality {
+func (e *LogExporter) TemporalityFor(desc *sdkapi.Descriptor, kind aggregation.Kind) aggregation.Temporality {
 	return e.metricExporter.TemporalityFor(desc, kind)
 }
 func (e *LogExporter) Shutdown(ctx context.Context) error {
