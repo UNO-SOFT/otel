@@ -11,13 +11,14 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/go-logr/logr"
 	global "go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/sdk/metric/sdkapi"
 	"go.opentelemetry.io/otel/propagation"
+	ctrlbasic "go.opentelemetry.io/otel/sdk/metric/controller/basic"
 	"go.opentelemetry.io/otel/sdk/metric/export"
 	"go.opentelemetry.io/otel/sdk/metric/export/aggregation"
-	ctrlbasic "go.opentelemetry.io/otel/sdk/metric/controller/basic"
 	procbasic "go.opentelemetry.io/otel/sdk/metric/processor/basic"
+	"go.opentelemetry.io/otel/sdk/metric/sdkapi"
 	"go.opentelemetry.io/otel/sdk/metric/selector/simple"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -61,8 +62,8 @@ func HTTPMiddleware(tracer Tracer, hndl http.Handler) http.Handler {
 }
 
 // nil sampler means sdktrace.AlwaysSample.
-func LogTraceProvider(Log func(...interface{}) error) (Provider, error) {
-	exporter := &LogExporter{Log: Log}
+func LogTraceProvider(logger logr.Logger) (Provider, error) {
+	exporter := &LogExporter{Logger: logger}
 	var err error
 	if exporter.traceExporter, err = stdouttrace.New(stdouttrace.WithWriter(&exporter.traceBuf)); err != nil {
 		return nil, err
@@ -83,13 +84,13 @@ func LogTraceProvider(Log func(...interface{}) error) (Provider, error) {
 	exporter.stop = func() error { return pusher.Stop(ctx) }
 	return tp, err
 }
-func LogTracer(Log func(...interface{}) error, name string) Tracer {
-	tp, _ := LogTraceProvider(Log)
+func LogTracer(logger logr.Logger, name string) Tracer {
+	tp, _ := LogTraceProvider(logger)
 	return tp.Tracer(name)
 }
 
 type LogExporter struct {
-	Log            func(...interface{}) error
+	logr.Logger
 	stop           func() error
 	traceBuf       bytes.Buffer
 	traceExporter  *stdouttrace.Exporter
@@ -97,7 +98,7 @@ type LogExporter struct {
 	metricExporter *stdoutmetric.Exporter
 }
 
-var _ export.Exporter= ((*LogExporter)(nil))
+var _ export.Exporter = ((*LogExporter)(nil))
 
 // ExportSpans writes SpanData in json format to stdout.
 func (e *LogExporter) ExportSpans(ctx context.Context, data []sdktrace.ReadOnlySpan) error {
@@ -105,14 +106,16 @@ func (e *LogExporter) ExportSpans(ctx context.Context, data []sdktrace.ReadOnlyS
 	if err := e.traceExporter.ExportSpans(ctx, data); err != nil {
 		return err
 	}
-	return e.Log("trace", json.RawMessage(e.traceBuf.Bytes()))
+	e.Info("exportSpans", "trace", json.RawMessage(e.traceBuf.Bytes()))
+	return nil
 }
 func (e *LogExporter) Export(ctx context.Context, resource *resource.Resource, checkpointSet export.InstrumentationLibraryReader) error {
 	e.metricBuf.Reset()
 	if err := e.metricExporter.Export(ctx, resource, checkpointSet); err != nil {
 		return err
 	}
-	return e.Log("metric", json.RawMessage(e.metricBuf.Bytes()))
+	e.Info("export", "metric", json.RawMessage(e.metricBuf.Bytes()))
+	return nil
 }
 
 // TemporalitySelector is a sub-interface of Exporter used to indicate whether the Processor should compute Delta or Cumulative Aggregations.
