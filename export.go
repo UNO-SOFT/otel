@@ -8,7 +8,10 @@ package otel
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"hash"
+	"io"
 	"net/http"
 
 	"github.com/go-logr/logr"
@@ -63,12 +66,16 @@ func HTTPMiddleware(tracer Tracer, hndl http.Handler) http.Handler {
 
 // nil sampler means sdktrace.AlwaysSample.
 func LogTraceProvider(logger logr.Logger) (Provider, error) {
-	exporter := &LogExporter{Logger: logger}
+	exporter := &LogExporter{Logger: logger, metricHash: sha256.New224()}
 	var err error
-	if exporter.traceExporter, err = stdouttrace.New(stdouttrace.WithWriter(&exporter.traceBuf)); err != nil {
+	if exporter.traceExporter, err = stdouttrace.New(
+		stdouttrace.WithWriter(&exporter.traceBuf),
+	); err != nil {
 		return nil, err
 	}
-	if exporter.metricExporter, err = stdoutmetric.New(stdoutmetric.WithWriter(&exporter.metricBuf)); err != nil {
+	if exporter.metricExporter, err = stdoutmetric.New(
+		stdoutmetric.WithWriter(io.MultiWriter(&exporter.metricBuf, exporter.metricHash)),
+	); err != nil {
 		return nil, err
 	}
 	tp := sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter))
@@ -94,6 +101,8 @@ type LogExporter struct {
 	stop           func() error
 	traceBuf       bytes.Buffer
 	traceExporter  *stdouttrace.Exporter
+	lastMetric     [sha256.Size224]byte
+	metricHash     hash.Hash
 	metricBuf      bytes.Buffer
 	metricExporter *stdoutmetric.Exporter
 }
@@ -109,11 +118,23 @@ func (e *LogExporter) ExportSpans(ctx context.Context, data []sdktrace.ReadOnlyS
 	e.Info("exportSpans", "trace", json.RawMessage(e.traceBuf.Bytes()))
 	return nil
 }
+
+// Export the current metrics, enforcing uniqueness (will not print the metric if it is the same as the last one).
 func (e *LogExporter) Export(ctx context.Context, resource *resource.Resource, checkpointSet export.InstrumentationLibraryReader) error {
 	e.metricBuf.Reset()
+	e.metricHash.Reset()
 	if err := e.metricExporter.Export(ctx, resource, checkpointSet); err != nil {
 		return err
 	}
+	if e.metricBuf.Len() == 0 {
+		return nil
+	}
+	var hsh [sha256.Size224]byte
+	e.metricHash.Sum(hsh[:0])
+	if hsh == e.lastMetric {
+		return nil
+	}
+	copy(e.lastMetric[:], hsh[:])
 	e.Info("export", "metric", json.RawMessage(e.metricBuf.Bytes()))
 	return nil
 }
