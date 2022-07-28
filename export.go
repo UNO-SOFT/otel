@@ -121,6 +121,9 @@ func (e *LogExporter) ExportSpans(ctx context.Context, data []sdktrace.ReadOnlyS
 
 // Export the current metrics, enforcing uniqueness (will not print the metric if it is the same as the last one).
 func (e *LogExporter) Export(ctx context.Context, resource *resource.Resource, checkpointSet export.InstrumentationLibraryReader) error {
+	if !e.Logger.Enabled() {
+		return nil
+	}
 	e.metricBuf.Reset()
 	e.metricHash.Reset()
 	if err := e.metricExporter.Export(ctx, resource, checkpointSet); err != nil {
