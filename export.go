@@ -32,7 +32,9 @@ import (
 )
 
 type (
-	Tracer   = trace.Tracer
+	// Tracer is trace.Tracer
+	Tracer = trace.Tracer
+	// Provider is trace.TraceProvider
 	Provider = trace.TracerProvider
 )
 
@@ -64,20 +66,20 @@ func HTTPMiddleware(tracer Tracer, hndl http.Handler) http.Handler {
 	})
 }
 
-// nil sampler means sdktrace.AlwaysSample.
+// LogTraceProvider wraps the Logger to as a Provider.
 func LogTraceProvider(logger logr.Logger) (Provider, error) {
 	exporter := &LogExporter{Logger: logger, metricHash: sha256.New224()}
-	var err error
-	if exporter.traceExporter, err = stdouttrace.New(
-		stdouttrace.WithWriter(&exporter.traceBuf),
-	); err != nil {
+	te, err := stdouttrace.New(stdouttrace.WithWriter(&exporter.traceBuf))
+	if err != nil {
 		return nil, err
 	}
-	if exporter.metricExporter, err = stdoutmetric.New(
-		stdoutmetric.WithWriter(io.MultiWriter(&exporter.metricBuf, exporter.metricHash)),
-	); err != nil {
+	me, err := stdoutmetric.New(
+		stdoutmetric.WithWriter(io.MultiWriter(&exporter.metricBuf, exporter.metricHash)))
+	if err != nil {
 		return nil, err
 	}
+	exporter.traceExporter, exporter.metricExporter = te, me
+
 	tp := sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter))
 	pusher := ctrlbasic.New(
 		procbasic.NewFactory(
