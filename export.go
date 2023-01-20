@@ -1,4 +1,4 @@
-// Copyright 2021, 2022 Tamás Gulácsi
+// Copyright 2021, 2023 Tamás Gulácsi
 //
 //
 // SPDX-License-Identifier: Apache-2.0
@@ -13,21 +13,18 @@ import (
 	"hash"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/go-logr/logr"
 	global "go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/stdout/stdoutmetric"
 	"go.opentelemetry.io/otel/propagation"
-	ctrlbasic "go.opentelemetry.io/otel/sdk/metric/controller/basic"
-	"go.opentelemetry.io/otel/sdk/metric/export"
-	"go.opentelemetry.io/otel/sdk/metric/export/aggregation"
-	procbasic "go.opentelemetry.io/otel/sdk/metric/processor/basic"
-	"go.opentelemetry.io/otel/sdk/metric/sdkapi"
-	"go.opentelemetry.io/otel/sdk/metric/selector/simple"
-	"go.opentelemetry.io/otel/sdk/resource"
+	"go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/aggregation"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 
-	"go.opentelemetry.io/otel/exporters/stdout/stdoutmetric"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
 )
 
@@ -74,24 +71,19 @@ func LogTraceProvider(logger logr.Logger) (Provider, error) {
 		return nil, err
 	}
 	me, err := stdoutmetric.New(
-		stdoutmetric.WithWriter(io.MultiWriter(&exporter.metricBuf, exporter.metricHash)))
+		stdoutmetric.WithEncoder(bufEncoder{
+			jsenc: json.NewEncoder(io.MultiWriter(&exporter.metricBuf, exporter.metricHash)),
+		}))
 	if err != nil {
 		return nil, err
 	}
 	exporter.traceExporter, exporter.metricExporter = te, me
 
-	tp := sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter))
-	pusher := ctrlbasic.New(
-		procbasic.NewFactory(
-			simple.NewWithHistogramDistribution(),
-			exporter,
-		),
-		ctrlbasic.WithExporter(exporter),
+	meterProvider := metric.NewMeterProvider(
+		metric.WithReader(metric.NewPeriodicReader(exporter, metric.WithInterval(10*time.Second))),
 	)
-	ctx := context.Background()
-	err = pusher.Start(ctx)
-	exporter.stop = func() error { return pusher.Stop(ctx) }
-	return tp, err
+	exporter.stop = func() error { return meterProvider.Shutdown(context.Background()) }
+	return sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter)), nil
 }
 func LogTracer(logger logr.Logger, name string) Tracer {
 	tp, _ := LogTraceProvider(logger)
@@ -106,12 +98,38 @@ type LogExporter struct {
 	lastMetric     [sha256.Size224]byte
 	metricHash     hash.Hash
 	metricBuf      bytes.Buffer
-	metricExporter *stdoutmetric.Exporter
+	metricExporter metric.Exporter
 }
 
-var _ export.Exporter = ((*LogExporter)(nil))
+var _ metric.Exporter = ((*LogExporter)(nil))
 
-// ExportSpans writes SpanData in json format to stdout.
+// Temporality returns the Temporality to use for an instrument kind.
+func (e *LogExporter) Temporality(kind metric.InstrumentKind) metricdata.Temporality {
+	return e.metricExporter.Temporality(kind)
+}
+
+// Aggregation returns the Aggregation to use for an instrument kind.
+func (e *LogExporter) Aggregation(kind metric.InstrumentKind) aggregation.Aggregation {
+	return metric.DefaultAggregationSelector(kind)
+}
+
+// ForceFlush flushes any metric data held by an exporter.
+//
+// The deadline or cancellation of the passed context must be honored. An
+// appropriate error should be returned in these situations.
+func (e *LogExporter) ForceFlush(ctx context.Context) error { return nil }
+
+// ExportSpans exports a batch of spans.
+//
+// This function is called synchronously, so there is no concurrency
+// safety requirement. However, due to the synchronous calling pattern,
+// it is critical that all timeouts and cancellations contained in the
+// passed context must be honored.
+//
+// Any retry logic must be contained in this function. The SDK that
+// calls this function will not implement any retry logic. All errors
+// returned by this function are considered unrecoverable and will be
+// reported to a configured error Handler.
 func (e *LogExporter) ExportSpans(ctx context.Context, data []sdktrace.ReadOnlySpan) error {
 	e.traceBuf.Reset()
 	if err := e.traceExporter.ExportSpans(ctx, data); err != nil {
@@ -121,14 +139,23 @@ func (e *LogExporter) ExportSpans(ctx context.Context, data []sdktrace.ReadOnlyS
 	return nil
 }
 
-// Export the current metrics, enforcing uniqueness (will not print the metric if it is the same as the last one).
-func (e *LogExporter) Export(ctx context.Context, resource *resource.Resource, checkpointSet export.InstrumentationLibraryReader) error {
+// Export serializes and transmits metric data to a receiver.
+//
+// This is called synchronously, there is no concurrency safety
+// requirement. Because of this, it is critical that all timeouts and
+// cancellations of the passed context be honored.
+//
+// All retry logic must be contained in this function. The SDK does not
+// implement any retry logic. All errors returned by this function are
+// considered unrecoverable and will be reported to a configured error
+// Handler.
+func (e *LogExporter) Export(ctx context.Context, resource metricdata.ResourceMetrics) error {
 	if !e.Logger.Enabled() {
 		return nil
 	}
 	e.metricBuf.Reset()
 	e.metricHash.Reset()
-	if err := e.metricExporter.Export(ctx, resource, checkpointSet); err != nil {
+	if err := e.metricExporter.Export(ctx, resource); err != nil {
 		return err
 	}
 	if e.metricBuf.Len() == 0 {
@@ -144,10 +171,14 @@ func (e *LogExporter) Export(ctx context.Context, resource *resource.Resource, c
 	return nil
 }
 
-// TemporalitySelector is a sub-interface of Exporter used to indicate whether the Processor should compute Delta or Cumulative Aggregations.
-func (e *LogExporter) TemporalityFor(desc *sdkapi.Descriptor, kind aggregation.Kind) aggregation.Temporality {
-	return e.metricExporter.TemporalityFor(desc, kind)
-}
+// Shutdown flushes all metric data held by an exporter and releases any
+// held computational resources.
+//
+// The deadline or cancellation of the passed context must be honored. An
+// appropriate error should be returned in these situations.
+//
+// After Shutdown is called, calls to Export will perform no operation and
+// instead will return an error indicating the shutdown state.
 func (e *LogExporter) Shutdown(ctx context.Context) error {
 	stop := e.stop
 	e.stop = nil
@@ -162,3 +193,7 @@ func (e *LogExporter) Shutdown(ctx context.Context) error {
 	}
 	return err
 }
+
+type bufEncoder struct{ jsenc *json.Encoder }
+
+func (be bufEncoder) Encode(v any) error { return be.jsenc.Encode(v) }
