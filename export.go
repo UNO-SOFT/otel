@@ -94,14 +94,14 @@ func LogTracer(logger logr.Logger, name string) Tracer {
 }
 
 type LogExporter struct {
-	logr.Logger
-	stop           func() error
-	traceBuf       bytes.Buffer
-	traceExporter  *stdouttrace.Exporter
-	lastMetric     [sha256.Size224]byte
 	metricHash     hash.Hash
-	metricBuf      bytes.Buffer
 	metricExporter metric.Exporter
+	stop           func() error
+	traceExporter  *stdouttrace.Exporter
+	logr.Logger
+	traceBuf   bytes.Buffer
+	metricBuf  bytes.Buffer
+	lastMetric [sha256.Size224]byte
 }
 
 var _ metric.Exporter = ((*LogExporter)(nil))
