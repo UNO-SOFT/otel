@@ -9,16 +9,16 @@
 package otel
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"hash"
 	"io"
+	"log"
 	"net/http"
+	"strings"
 	"time"
 
-	"github.com/go-logr/logr"
 	global "go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/stdout/stdoutmetric"
 	"go.opentelemetry.io/otel/propagation"
@@ -67,7 +67,7 @@ func HTTPMiddleware(tracer Tracer, hndl http.Handler) http.Handler {
 }
 
 // LogTraceProvider wraps the Logger to as a Provider.
-func LogTraceProvider(logger logr.Logger) (Provider, error) {
+func LogTraceProvider(logger *log.Logger) (Provider, error) {
 	exporter := &LogExporter{Logger: logger, metricHash: sha256.New224()}
 	te, err := stdouttrace.New(stdouttrace.WithWriter(&exporter.traceBuf))
 	if err != nil {
@@ -88,7 +88,7 @@ func LogTraceProvider(logger logr.Logger) (Provider, error) {
 	exporter.stop = func() error { return meterProvider.Shutdown(context.Background()) }
 	return sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter)), nil
 }
-func LogTracer(logger logr.Logger, name string) Tracer {
+func LogTracer(logger *log.Logger, name string) Tracer {
 	tp, _ := LogTraceProvider(logger)
 	return tp.Tracer(name)
 }
@@ -98,9 +98,9 @@ type LogExporter struct {
 	metricExporter metric.Exporter
 	stop           func() error
 	traceExporter  *stdouttrace.Exporter
-	logr.Logger
-	traceBuf   bytes.Buffer
-	metricBuf  bytes.Buffer
+	*log.Logger
+	traceBuf   strings.Builder
+	metricBuf  strings.Builder
 	lastMetric [sha256.Size224]byte
 }
 
@@ -135,10 +135,11 @@ func (e *LogExporter) ForceFlush(ctx context.Context) error { return nil }
 // reported to a configured error Handler.
 func (e *LogExporter) ExportSpans(ctx context.Context, data []sdktrace.ReadOnlySpan) error {
 	e.traceBuf.Reset()
+	e.traceBuf.WriteString("exportSpans trace=")
 	if err := e.traceExporter.ExportSpans(ctx, data); err != nil {
 		return err
 	}
-	e.Info("exportSpans", "trace", json.RawMessage(e.traceBuf.Bytes()))
+	e.Logger.Output(2, e.traceBuf.String())
 	return nil
 }
 
@@ -153,10 +154,8 @@ func (e *LogExporter) ExportSpans(ctx context.Context, data []sdktrace.ReadOnlyS
 // considered unrecoverable and will be reported to a configured error
 // Handler.
 func (e *LogExporter) Export(ctx context.Context, resource metricdata.ResourceMetrics) error {
-	if !e.Logger.Enabled() {
-		return nil
-	}
 	e.metricBuf.Reset()
+	e.metricBuf.WriteString("export metric=")
 	e.metricHash.Reset()
 	if err := e.metricExporter.Export(ctx, resource); err != nil {
 		return err
@@ -170,7 +169,7 @@ func (e *LogExporter) Export(ctx context.Context, resource metricdata.ResourceMe
 		return nil
 	}
 	copy(e.lastMetric[:], hsh[:])
-	e.Info("export", "metric", json.RawMessage(e.metricBuf.Bytes()))
+	e.Logger.Output(2, e.metricBuf.String())
 	return nil
 }
 
