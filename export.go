@@ -15,13 +15,11 @@ import (
 	"hash"
 	"io"
 	"log"
-	"net/http"
 	"strings"
 	"time"
 
 	global "go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/stdout/stdoutmetric"
-	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/aggregation"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
@@ -41,30 +39,6 @@ type (
 func SetGlobalTraceProvider(provider Provider) { global.SetTracerProvider(provider) }
 func GlobalTraceProvider() Provider            { return global.GetTracerProvider() }
 func GlobalTracer(name string) Tracer          { return global.Tracer(name) }
-
-var HTTPPropagators = propagation.NewCompositeTextMapPropagator(
-	propagation.TraceContext{}, propagation.Baggage{},
-)
-
-func ExtractHTTP(ctx context.Context, headers http.Header) context.Context {
-	return HTTPPropagators.Extract(ctx, propagation.HeaderCarrier(headers))
-}
-func InjectHTTP(ctx context.Context, headers http.Header) {
-	HTTPPropagators.Inject(ctx, propagation.HeaderCarrier(headers))
-}
-
-func HTTPMiddleware(tracer Tracer, hndl http.Handler) http.Handler {
-	if tracer == nil {
-		tracer = global.Tracer("github.com/UNO-SOFT/otel")
-	}
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := ExtractHTTP(r.Context(), r.Header)
-		ctx, span := tracer.Start(ctx, r.URL.Path)
-		InjectHTTP(ctx, w.Header())
-		hndl.ServeHTTP(w, r)
-		span.End()
-	})
-}
 
 // LogTraceProvider wraps the Logger to as a Provider.
 func LogTraceProvider(logger *log.Logger) (Provider, error) {
