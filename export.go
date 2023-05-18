@@ -127,7 +127,7 @@ func (e *LogExporter) ExportSpans(ctx context.Context, data []sdktrace.ReadOnlyS
 // implement any retry logic. All errors returned by this function are
 // considered unrecoverable and will be reported to a configured error
 // Handler.
-func (e *LogExporter) Export(ctx context.Context, resource metricdata.ResourceMetrics) error {
+func (e *LogExporter) Export(ctx context.Context, resource *metricdata.ResourceMetrics) error {
 	e.metricBuf.Reset()
 	e.metricBuf.WriteString("export metric=")
 	e.metricHash.Reset()
