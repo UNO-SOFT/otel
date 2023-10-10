@@ -21,7 +21,6 @@ import (
 	global "go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/stdout/stdoutmetric"
 	"go.opentelemetry.io/otel/sdk/metric"
-	"go.opentelemetry.io/otel/sdk/metric/aggregation"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
@@ -86,7 +85,7 @@ func (e *LogExporter) Temporality(kind metric.InstrumentKind) metricdata.Tempora
 }
 
 // Aggregation returns the Aggregation to use for an instrument kind.
-func (e *LogExporter) Aggregation(kind metric.InstrumentKind) aggregation.Aggregation {
+func (e *LogExporter) Aggregation(kind metric.InstrumentKind) metric.Aggregation {
 	return metric.DefaultAggregationSelector(kind)
 }
 
