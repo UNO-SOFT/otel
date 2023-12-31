@@ -9,13 +9,15 @@ import (
 	"context"
 	"net/http"
 
-	global "go.opentelemetry.io/otel"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 )
 
-var HTTPPropagators = propagation.NewCompositeTextMapPropagator(
-	propagation.TraceContext{}, propagation.Baggage{},
-)
+func GetGlobalTextMapPropagator() propagation.TextMapPropagator  { return otel.GetTextMapPropagator() }
+func SetGlobalTextMapPropagator(p propagation.TextMapPropagator) { otel.SetTextMapPropagator((p)) }
+
+var HTTPPropagators = newPropagator()
 
 func ExtractHTTP(ctx context.Context, headers http.Header) context.Context {
 	return HTTPPropagators.Extract(ctx, propagation.HeaderCarrier(headers))
@@ -26,7 +28,7 @@ func InjectHTTP(ctx context.Context, headers http.Header) {
 
 func HTTPMiddleware(tracer Tracer, hndl http.Handler) http.Handler {
 	if tracer == nil {
-		tracer = global.Tracer("github.com/UNO-SOFT/otel")
+		tracer = otel.Tracer("github.com/UNO-SOFT/otel")
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := ExtractHTTP(r.Context(), r.Header)
@@ -35,4 +37,8 @@ func HTTPMiddleware(tracer Tracer, hndl http.Handler) http.Handler {
 		hndl.ServeHTTP(w, r)
 		span.End()
 	})
+}
+
+func HTTPHandlr(hndl http.Handler, operation string) http.Handler {
+	return otelhttp.NewHandler(hndl, operation)
 }

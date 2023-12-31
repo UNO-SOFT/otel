@@ -14,6 +14,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/stats"
 )
 
 func Extract(ctx context.Context, metadata *metadata.MD, opts ...grpctrace.Option) (baggage.Baggage, trace.SpanContext) {
@@ -23,18 +24,41 @@ func Extract(ctx context.Context, metadata *metadata.MD, opts ...grpctrace.Optio
 func Inject(ctx context.Context, metadata *metadata.MD, opts ...grpctrace.Option) {
 	grpctrace.Inject(ctx, metadata, opts...)
 }
+
+// StreamClientInterceptor
+//
+// Deprecated: use ClientInterceptor instead.
 func StreamClientInterceptor(opts ...grpctrace.Option) grpc.StreamClientInterceptor {
 	return grpctrace.StreamClientInterceptor(opts...)
 }
+
+// StreamServerInterceptor
+//
+// Deprecated: use ServerInterceptor instead
 func StreamServerInterceptor(opts ...grpctrace.Option) grpc.StreamServerInterceptor {
 	return grpctrace.StreamServerInterceptor(opts...)
 }
 
+// UnaryClientInterceptor
+//
+// Deprecated: use ClientInterceptor instead
 func UnaryClientInterceptor(opts ...grpctrace.Option) grpc.UnaryClientInterceptor {
 	return grpctrace.UnaryClientInterceptor(opts...)
 }
+
+// UnaryServerInterceptor
+//
+// Deprecated: use ServerInterceptor instead
 func UnaryServerInterceptor(opts ...grpctrace.Option) grpc.UnaryServerInterceptor {
 	return grpctrace.UnaryServerInterceptor(opts...)
+}
+
+func ClientInterceptor(opts ...grpctrace.Option) stats.Handler {
+	return grpctrace.NewClientHandler(opts...)
+}
+
+func ServerInterceptor(opts ...grpctrace.Option) stats.Handler {
+	return grpctrace.NewServerHandler(opts...)
 }
 
 func WithPropagators(p propagation.TextMapPropagator) grpctrace.Option {

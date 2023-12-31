@@ -12,63 +12,87 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"hash"
 	"io"
 	"log"
 	"strings"
-	"time"
 
-	global "go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/stdout/stdoutmetric"
-	"go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
+	"go.opentelemetry.io/otel/metric"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
-
-	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
 )
 
 type (
 	// Tracer is trace.Tracer
 	Tracer = trace.Tracer
 	// Provider is trace.TraceProvider
-	Provider = trace.TracerProvider
+	TracerProvider = trace.TracerProvider
+
+	// Meter is meter.Meter
+	Meter = metric.Meter
+	// MeterProvider is meter.MeterProvider
+	MeterProvider = metric.MeterProvider
+
+	Exporter interface {
+		Shutdown(ctx context.Context) error
+		ExportSpans(ctx context.Context, spans []sdktrace.ReadOnlySpan) error
+	}
 )
 
-func SetGlobalTraceProvider(provider Provider) { global.SetTracerProvider(provider) }
-func GlobalTraceProvider() Provider            { return global.GetTracerProvider() }
-func GlobalTracer(name string) Tracer          { return global.Tracer(name) }
+func SetGlobalTracerProvider(provider TracerProvider) { otel.SetTracerProvider(provider) }
+func GlobalTracerProvider() TracerProvider            { return otel.GetTracerProvider() }
+func GlobalTracer(name string) Tracer                 { return otel.Tracer(name) }
+
+func SetGlobalMeterProvider(provider MeterProvider) { otel.SetMeterProvider(provider) }
+func GlobalMeterProvider() MeterProvider            { return otel.GetMeterProvider() }
+func GlobalMeter(name string) Meter                 { return otel.Meter(name) }
 
 // LogTraceProvider wraps the Logger to as a Provider.
-func LogTraceProvider(logger *log.Logger) (Provider, error) {
+func LogTraceProvider(logger *log.Logger, serviceName, serviceVersion string) (TracerProvider, MeterProvider, func() error, error) {
 	exporter := &LogExporter{Logger: logger, metricHash: sha256.New224()}
 	te, err := stdouttrace.New(stdouttrace.WithWriter(&exporter.traceBuf))
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 	me, err := stdoutmetric.New(
 		stdoutmetric.WithEncoder(bufEncoder{
 			jsenc: json.NewEncoder(io.MultiWriter(&exporter.metricBuf, exporter.metricHash)),
 		}))
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 	exporter.traceExporter, exporter.metricExporter = te, me
 
-	meterProvider := metric.NewMeterProvider(
-		metric.WithReader(metric.NewPeriodicReader(exporter, metric.WithInterval(10*time.Second))),
-	)
-	exporter.stop = func() error { return meterProvider.Shutdown(context.Background()) }
-	return sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter)), nil
+	res, err := newResource(serviceName, serviceVersion)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	meterProvider := newMeterProvider(exporter, res)
+	tracerProvider := newTracerProvider(exporter, res)
+
+	exporter.stop = func() error {
+		ctx := context.Background()
+		meterErr := meterProvider.Shutdown(ctx)
+		tracerErr := tracerProvider.Shutdown(ctx)
+		return errors.Join(meterErr, tracerErr)
+	}
+	return tracerProvider, meterProvider, exporter.stop, nil
 }
-func LogTracer(logger *log.Logger, name string) Tracer {
-	tp, _ := LogTraceProvider(logger)
-	return tp.Tracer(name)
+func LogTraceMeter(logger *log.Logger, serviceName, serviceVersion string) (Tracer, Meter) {
+	tp, mp, _, _ := LogTraceProvider(logger, serviceName, serviceVersion)
+	return tp.Tracer(serviceName), mp.Meter(serviceName)
 }
 
 type LogExporter struct {
 	metricHash     hash.Hash
-	metricExporter metric.Exporter
+	metricExporter sdkmetric.Exporter
 	stop           func() error
 	traceExporter  *stdouttrace.Exporter
 	*log.Logger
@@ -77,16 +101,16 @@ type LogExporter struct {
 	lastMetric [sha256.Size224]byte
 }
 
-var _ metric.Exporter = ((*LogExporter)(nil))
+var _ sdkmetric.Exporter = ((*LogExporter)(nil))
 
 // Temporality returns the Temporality to use for an instrument kind.
-func (e *LogExporter) Temporality(kind metric.InstrumentKind) metricdata.Temporality {
+func (e *LogExporter) Temporality(kind sdkmetric.InstrumentKind) metricdata.Temporality {
 	return e.metricExporter.Temporality(kind)
 }
 
 // Aggregation returns the Aggregation to use for an instrument kind.
-func (e *LogExporter) Aggregation(kind metric.InstrumentKind) metric.Aggregation {
-	return metric.DefaultAggregationSelector(kind)
+func (e *LogExporter) Aggregation(kind sdkmetric.InstrumentKind) sdkmetric.Aggregation {
+	return sdkmetric.DefaultAggregationSelector(kind)
 }
 
 // ForceFlush flushes any metric data held by an exporter.
