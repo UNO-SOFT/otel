@@ -17,7 +17,7 @@ import (
 
 // https://opentelemetry.io/docs/instrumentation/go/getting-started/
 
-func newResource(serviceName, serviceVersion string) (*resource.Resource, error) {
+func NewResource(serviceName, serviceVersion string) (*resource.Resource, error) {
 	return resource.Merge(resource.Default(),
 		resource.NewWithAttributes(semconv.SchemaURL,
 			semconv.ServiceName(serviceName),
@@ -25,14 +25,14 @@ func newResource(serviceName, serviceVersion string) (*resource.Resource, error)
 		))
 }
 
-func newPropagator() propagation.TextMapPropagator {
+func NewPropagator() propagation.TextMapPropagator {
 	return propagation.NewCompositeTextMapPropagator(
 		propagation.TraceContext{},
 		propagation.Baggage{},
 	)
 }
 
-func newTracerProvider(traceExporter Exporter, res *resource.Resource) *sdktrace.TracerProvider {
+func NewTracerProvider(traceExporter Exporter, res *resource.Resource) *sdktrace.TracerProvider {
 	return sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(traceExporter,
 			sdktrace.WithBatchTimeout(10*time.Second)),
@@ -40,11 +40,10 @@ func newTracerProvider(traceExporter Exporter, res *resource.Resource) *sdktrace
 	)
 }
 
-func newMeterProvider(metricExporter metric.Exporter, res *resource.Resource) *metric.MeterProvider {
-	meterProvider := metric.NewMeterProvider(
+func NewMeterProvider(metricExporter metric.Exporter, res *resource.Resource) *metric.MeterProvider {
+	return metric.NewMeterProvider(
 		metric.WithResource(res),
 		metric.WithReader(metric.NewPeriodicReader(metricExporter,
 			metric.WithInterval(10*time.Second))),
 	)
-	return meterProvider
 }

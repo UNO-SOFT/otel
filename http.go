@@ -17,7 +17,7 @@ import (
 func GetGlobalTextMapPropagator() propagation.TextMapPropagator  { return otel.GetTextMapPropagator() }
 func SetGlobalTextMapPropagator(p propagation.TextMapPropagator) { otel.SetTextMapPropagator((p)) }
 
-var HTTPPropagators = newPropagator()
+var HTTPPropagators = NewPropagator()
 
 func ExtractHTTP(ctx context.Context, headers http.Header) context.Context {
 	return HTTPPropagators.Extract(ctx, propagation.HeaderCarrier(headers))
@@ -39,6 +39,6 @@ func HTTPMiddleware(tracer Tracer, hndl http.Handler) http.Handler {
 	})
 }
 
-func HTTPHandlr(hndl http.Handler, operation string) http.Handler {
+func HTTPHandler(hndl http.Handler, operation string) http.Handler {
 	return otelhttp.NewHandler(hndl, operation)
 }

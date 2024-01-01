@@ -69,13 +69,13 @@ func LogTraceProvider(logger *log.Logger, serviceName, serviceVersion string) (T
 	}
 	exporter.traceExporter, exporter.metricExporter = te, me
 
-	res, err := newResource(serviceName, serviceVersion)
+	res, err := NewResource(serviceName, serviceVersion)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
-	meterProvider := newMeterProvider(exporter, res)
-	tracerProvider := newTracerProvider(exporter, res)
+	meterProvider := NewMeterProvider(exporter, res)
+	tracerProvider := NewTracerProvider(exporter, res)
 
 	exporter.stop = func() error {
 		ctx := context.Background()
