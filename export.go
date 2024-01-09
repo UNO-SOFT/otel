@@ -186,7 +186,7 @@ func (e *LogExporter) Shutdown(ctx context.Context) error {
 		err = e.traceExporter.Shutdown(ctx)
 	}
 	if stop != nil {
-		if stopErr := e.stop(); stopErr != nil && err == nil {
+		if stopErr := stop(); stopErr != nil && err == nil {
 			err = stopErr
 		}
 	}
