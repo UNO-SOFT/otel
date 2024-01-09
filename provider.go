@@ -44,6 +44,6 @@ func NewMeterProvider(metricExporter metric.Exporter, res *resource.Resource) *m
 	return metric.NewMeterProvider(
 		metric.WithResource(res),
 		metric.WithReader(metric.NewPeriodicReader(metricExporter,
-			metric.WithInterval(10*time.Second))),
+			metric.WithInterval(1*time.Minute))),
 	)
 }
