@@ -12,11 +12,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
-	"errors"
 	"hash"
 	"io"
 	"log"
 	"strings"
+	"time"
+
+	"golang.org/x/sync/errgroup"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/stdout/stdoutmetric"
@@ -54,7 +56,7 @@ func GlobalMeterProvider() MeterProvider            { return otel.GetMeterProvid
 func GlobalMeter(name string) Meter                 { return otel.Meter(name) }
 
 // LogTraceProvider wraps the Logger to as a Provider.
-func LogTraceProvider(logger *log.Logger, serviceName, serviceVersion string) (TracerProvider, MeterProvider, func() error, error) {
+func LogTraceProvider(logger *log.Logger, serviceName, serviceVersion string) (TracerProvider, MeterProvider, func(context.Context) error, error) {
 	exporter := &LogExporter{Logger: logger, metricHash: sha256.New224()}
 	te, err := stdouttrace.New(stdouttrace.WithWriter(&exporter.traceBuf))
 	if err != nil {
@@ -77,11 +79,13 @@ func LogTraceProvider(logger *log.Logger, serviceName, serviceVersion string) (T
 	meterProvider := NewMeterProvider(exporter, res)
 	tracerProvider := NewTracerProvider(exporter, res)
 
-	exporter.stop = func() error {
-		ctx := context.Background()
-		meterErr := meterProvider.Shutdown(ctx)
-		tracerErr := tracerProvider.Shutdown(ctx)
-		return errors.Join(meterErr, tracerErr)
+	exporter.stop = func(ctx context.Context) error {
+		ctx, cancel := context.WithTimeout(ctx, time.Second)
+		defer cancel()
+		grp, grpCtx := errgroup.WithContext(ctx)
+		grp.Go(func() error { return meterProvider.Shutdown(grpCtx) })
+		grp.Go(func() error { return tracerProvider.Shutdown(grpCtx) })
+		return grp.Wait()
 	}
 	return tracerProvider, meterProvider, exporter.stop, nil
 }
@@ -93,7 +97,7 @@ func LogTraceMeter(logger *log.Logger, serviceName, serviceVersion string) (Trac
 type LogExporter struct {
 	metricHash     hash.Hash
 	metricExporter sdkmetric.Exporter
-	stop           func() error
+	stop           func(context.Context) error
 	traceExporter  *stdouttrace.Exporter
 	*log.Logger
 	traceBuf   strings.Builder
@@ -181,16 +185,20 @@ func (e *LogExporter) Export(ctx context.Context, resource *metricdata.ResourceM
 func (e *LogExporter) Shutdown(ctx context.Context) error {
 	stop := e.stop
 	e.stop = nil
-	var err error
+	if stop == nil && e.traceExporter == nil {
+		return nil
+	}
+	// e.Logger.Printf("Shutdown te=%p stop=%p", e.traceExporter, stop)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	grp, grpCtx := errgroup.WithContext(ctx)
 	if e.traceExporter != nil {
-		err = e.traceExporter.Shutdown(ctx)
+		grp.Go(func() error { return e.traceExporter.Shutdown(grpCtx) })
 	}
 	if stop != nil {
-		if stopErr := stop(); stopErr != nil && err == nil {
-			err = stopErr
-		}
+		grp.Go(func() error { return stop(grpCtx) })
 	}
-	return err
+	return grp.Wait()
 }
 
 type bufEncoder struct{ jsenc *json.Encoder }
