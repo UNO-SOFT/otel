@@ -26,15 +26,11 @@ func Inject(ctx context.Context, metadata *metadata.MD, opts ...grpctrace.Option
 }
 
 // StreamClientInterceptor
-//
-// Deprecated: use ClientInterceptor instead.
 func StreamClientInterceptor(opts ...grpctrace.Option) grpc.StreamClientInterceptor {
 	return grpctrace.StreamClientInterceptor(opts...)
 }
 
 // StreamServerInterceptor
-//
-// Deprecated: use ServerInterceptor instead
 func StreamServerInterceptor(opts ...grpctrace.Option) grpc.StreamServerInterceptor {
 	return grpctrace.StreamServerInterceptor(opts...)
 }
