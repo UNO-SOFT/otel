@@ -2,6 +2,8 @@ module github.com/UNO-SOFT/otel
 
 go 1.19
 
+toolchain go1.22.0
+
 require (
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.48.0
 	go.opentelemetry.io/otel v1.23.1
