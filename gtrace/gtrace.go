@@ -26,13 +26,13 @@ func Inject(ctx context.Context, metadata *metadata.MD, opts ...grpctrace.Option
 }
 
 // StreamClientInterceptor
-func StreamClientInterceptor(opts ...grpctrace.Option) grpc.StreamClientInterceptor {
-	return grpctrace.StreamClientInterceptor(opts...)
+func StreamClientInterceptor(opts ...grpctrace.Option) stats.Handler {
+	return grpctrace.NewClientHandler(opts...)
 }
 
 // StreamServerInterceptor
-func StreamServerInterceptor(opts ...grpctrace.Option) grpc.StreamServerInterceptor {
-	return grpctrace.StreamServerInterceptor(opts...)
+func StreamServerInterceptor(opts ...grpctrace.Option) stats.Handler {
+	return grpctrace.NewServerHandler(opts...)
 }
 
 // UnaryClientInterceptor

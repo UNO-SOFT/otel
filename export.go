@@ -189,7 +189,7 @@ func (e *LogExporter) Shutdown(ctx context.Context) error {
 		return nil
 	}
 	// e.Logger.Printf("Shutdown te=%p stop=%p", e.traceExporter, stop)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 	grp, grpCtx := errgroup.WithContext(ctx)
 	if e.traceExporter != nil {
