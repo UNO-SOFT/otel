@@ -12,6 +12,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func GetGlobalTextMapPropagator() propagation.TextMapPropagator  { return otel.GetTextMapPropagator() }
@@ -41,4 +42,8 @@ func HTTPMiddleware(tracer Tracer, hndl http.Handler) http.Handler {
 
 func HTTPHandler(hndl http.Handler, operation string) http.Handler {
 	return otelhttp.NewHandler(hndl, operation)
+}
+
+func SpanContextFromContext(ctx context.Context) trace.SpanContext {
+	return trace.SpanContextFromContext(ctx)
 }
