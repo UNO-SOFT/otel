@@ -18,8 +18,6 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/sync/errgroup"
-
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/stdout/stdoutmetric"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
@@ -82,10 +80,20 @@ func LogTraceProvider(logger *log.Logger, serviceName, serviceVersion string) (T
 	exporter.stop = func(ctx context.Context) error {
 		ctx, cancel := context.WithTimeout(ctx, time.Second)
 		defer cancel()
-		grp, grpCtx := errgroup.WithContext(ctx)
-		grp.Go(func() error { return meterProvider.Shutdown(grpCtx) })
-		grp.Go(func() error { return tracerProvider.Shutdown(grpCtx) })
-		return grp.Wait()
+		errCh := make(chan error, 2)
+		go func() { errCh <- meterProvider.Shutdown(ctx) }()
+		go func() { errCh <- tracerProvider.Shutdown(ctx) }()
+		select {
+		case err := <-errCh:
+			return err
+		case <-ctx.Done():
+			select {
+			case err := <-errCh:
+				return err
+			default:
+				return ctx.Err()
+			}
+		}
 	}
 	return tracerProvider, meterProvider, exporter.stop, nil
 }
@@ -191,14 +199,24 @@ func (e *LogExporter) Shutdown(ctx context.Context) error {
 	// e.Logger.Printf("Shutdown te=%p stop=%p", e.traceExporter, stop)
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
-	grp, grpCtx := errgroup.WithContext(ctx)
+	errCh := make(chan error, 2)
 	if e.traceExporter != nil {
-		grp.Go(func() error { return e.traceExporter.Shutdown(grpCtx) })
+		go func() { errCh <- e.traceExporter.Shutdown(ctx) }()
 	}
 	if stop != nil {
-		grp.Go(func() error { return stop(grpCtx) })
+		go func() { errCh <- stop(ctx) }()
 	}
-	return grp.Wait()
+	select {
+	case err := <-errCh:
+		return err
+	case <-ctx.Done():
+		select {
+		case err := <-errCh:
+			return err
+		default:
+			return ctx.Err()
+		}
+	}
 }
 
 type bufEncoder struct{ jsenc *json.Encoder }
