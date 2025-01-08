@@ -21,7 +21,9 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/stdout/stdoutmetric"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
+	olog "go.opentelemetry.io/otel/log"
 	"go.opentelemetry.io/otel/metric"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -31,13 +33,18 @@ import (
 type (
 	// Tracer is trace.Tracer
 	Tracer = trace.Tracer
-	// Provider is trace.TraceProvider
+	// TacerProvider is trace.TraceProvider
 	TracerProvider = trace.TracerProvider
 
 	// Meter is meter.Meter
 	Meter = metric.Meter
 	// MeterProvider is meter.MeterProvider
 	MeterProvider = metric.MeterProvider
+
+	// Logger is log.Logger
+	Logger = olog.Logger
+	// LoggerProvider is sdklog.LoggerProvider
+	LoggerProvider = sdklog.LoggerProvider
 
 	Exporter interface {
 		Shutdown(ctx context.Context) error
@@ -97,7 +104,7 @@ func LogTraceProvider(logger *log.Logger, serviceName, serviceVersion string) (T
 	}
 	return tracerProvider, meterProvider, exporter.stop, nil
 }
-func LogTraceMeter(logger *log.Logger, serviceName, serviceVersion string) (Tracer, Meter) {
+func LogTraceMeterLogger(logger *log.Logger, serviceName, serviceVersion string) (Tracer, Meter) {
 	tp, mp, _, _ := LogTraceProvider(logger, serviceName, serviceVersion)
 	return tp.Tracer(serviceName), mp.Meter(serviceName)
 }
