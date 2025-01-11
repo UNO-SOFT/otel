@@ -62,6 +62,10 @@ func GlobalMeterProvider() MeterProvider            { return otel.GetMeterProvid
 func GlobalMeter(name string) Meter                 { return otel.Meter(name) }
 
 func StartTrace(ctx context.Context, name, traceID, spanID string) (context.Context, trace.Span) {
+	ctx = ContextWithTraceSpan(ctx, traceID, spanID)
+	return GlobalTracer(name).Start(ctx, trace.SpanContextFromContext(ctx).SpanID().String())
+}
+func ContextWithTraceSpan(ctx context.Context, traceID, spanID string) context.Context {
 	if traceID != "" {
 		if len(traceID) < 32 {
 			traceID = strings.Repeat("0", 32-len(traceID)) + traceID
@@ -69,8 +73,8 @@ func StartTrace(ctx context.Context, name, traceID, spanID string) (context.Cont
 			traceID = traceID[:32]
 		}
 		if traceID, err := trace.TraceIDFromHex(traceID); err == nil && traceID.IsValid() {
-			spanCtx := trace.SpanContextFromContext(ctx)
-			ctx = trace.ContextWithSpanContext(ctx, spanCtx.WithTraceID(traceID))
+			ctx = trace.ContextWithSpanContext(ctx, trace.SpanContextFromContext(ctx).
+				WithTraceID(traceID))
 		}
 	}
 	if spanID == "" {
@@ -80,7 +84,12 @@ func StartTrace(ctx context.Context, name, traceID, spanID string) (context.Cont
 	} else if len(spanID) > 16 {
 		spanID = spanID[:16]
 	}
-	return GlobalTracer(name).Start(ctx, spanID)
+	if spanID, err := trace.SpanIDFromHex(spanID); err == nil && spanID.IsValid() {
+
+		ctx = trace.ContextWithSpanContext(ctx, trace.SpanContextFromContext(ctx).
+			WithSpanID(spanID))
+	}
+	return ctx
 }
 
 // LogTraceProvider wraps the Logger to as a Provider.
