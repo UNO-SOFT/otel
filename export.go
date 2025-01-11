@@ -65,6 +65,8 @@ func StartTrace(ctx context.Context, name, traceID, spanID string) (context.Cont
 	if traceID != "" {
 		if len(traceID) < 32 {
 			traceID = strings.Repeat("0", 32-len(traceID)) + traceID
+		} else if len(traceID) > 32 {
+			traceID = traceID[:32]
 		}
 		if traceID, err := trace.TraceIDFromHex(traceID); err == nil && traceID.IsValid() {
 			spanCtx := trace.SpanContextFromContext(ctx)
@@ -72,7 +74,11 @@ func StartTrace(ctx context.Context, name, traceID, spanID string) (context.Cont
 		}
 	}
 	if spanID == "" {
-		spanID = fmt.Sprintf("%x", time.Now().UnixMicro())
+		spanID = fmt.Sprintf("%016x", time.Now().UnixMicro())
+	} else if len(spanID) < 16 {
+		spanID = strings.Repeat("0", 32-len(spanID))
+	} else if len(spanID) > 16 {
+		spanID = spanID[:16]
 	}
 	return GlobalTracer(name).Start(ctx, spanID)
 }
