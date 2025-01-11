@@ -23,6 +23,7 @@ type LogRecord = log.Record
 
 func LogStringValue(v string) log.Value       { return log.StringValue(v) }
 func LogInt64(k string, v int64) log.KeyValue { return log.Int64(k, v) }
+func LogString(k, v string) log.KeyValue      { return log.String(k, v) }
 
 // https://opentelemetry.io/docs/instrumentation/go/getting-started/
 

@@ -25,6 +25,6 @@ func NewSLogger(name string, lp *LoggerProvider, options ...otelslog.Option) *sl
 	return otelslog.NewLogger(name, options...)
 }
 
-func WithSchemaURL(schemaURL string) otelslog.Option { return otelslog.WithSchemaURL(schemaURL) }
-func WithSource(source bool) otelslog.Option         { return otelslog.WithSource(source) }
-func WithVersion(version string) otelslog.Option     { return otelslog.WithVersion(version) }
+func LogWithSchemaURL(schemaURL string) otelslog.Option { return otelslog.WithSchemaURL(schemaURL) }
+func LogWithSource(source bool) otelslog.Option         { return otelslog.WithSource(source) }
+func LogWithVersion(version string) otelslog.Option     { return otelslog.WithVersion(version) }

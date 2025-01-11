@@ -12,6 +12,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"hash"
 	"io"
 	"log"
@@ -59,6 +60,22 @@ func GlobalTracer(name string) Tracer                 { return otel.Tracer(name)
 func SetGlobalMeterProvider(provider MeterProvider) { otel.SetMeterProvider(provider) }
 func GlobalMeterProvider() MeterProvider            { return otel.GetMeterProvider() }
 func GlobalMeter(name string) Meter                 { return otel.Meter(name) }
+
+func StartTrace(ctx context.Context, name, traceID, spanID string) (context.Context, trace.Span) {
+	if traceID != "" {
+		if len(traceID) < 32 {
+			traceID = strings.Repeat("0", 32-len(traceID)) + traceID
+		}
+		if traceID, err := trace.TraceIDFromHex(traceID); err == nil && traceID.IsValid() {
+			spanCtx := trace.SpanContextFromContext(ctx)
+			ctx = trace.ContextWithSpanContext(ctx, spanCtx.WithTraceID(traceID))
+		}
+	}
+	if spanID == "" {
+		spanID = fmt.Sprintf("%x", time.Now().UnixMicro())
+	}
+	return GlobalTracer(name).Start(ctx, spanID)
+}
 
 // LogTraceProvider wraps the Logger to as a Provider.
 func LogTraceProvider(logger *log.Logger, serviceName, serviceVersion string) (TracerProvider, MeterProvider, func(context.Context) error, error) {
