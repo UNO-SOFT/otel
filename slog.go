@@ -38,12 +38,13 @@ func LogWithVersion(version string) otelslog.Option     { return otelslog.WithVe
 // iff OTEL_EXPORTER_OTLP_LOGS_ENDPOINT is specified.
 //
 // VL_ACCOUNT_ID+VL_PROJECT_ID or VL_TENANT_ID is used for providing henaders (AccountID, ProjectID) for VictoriaLogs.
-func SetupOTLP(ctx context.Context, serviceName, version string) (slog.Handler, func(context.Context), error) {
+func SetupOTLP(ctx context.Context, serviceNameAtVersion string) (slog.Handler, func(context.Context), error) {
 	logsURL := os.Getenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT")
 	if logsURL == "" {
 		return nil, nil, nil
 	}
-	resource, err := NewResource(serviceName, version)
+	serviceName, serviceVersion, _ := strings.Cut(serviceNameAtVersion, "@")
+	resource, err := NewResource(serviceName, serviceVersion)
 	if err != nil {
 		return nil, nil, err
 	}
