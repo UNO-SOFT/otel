@@ -38,15 +38,15 @@ func LogWithVersion(version string) otelslog.Option     { return otelslog.WithVe
 // iff OTEL_EXPORTER_OTLP_LOGS_ENDPOINT is specified.
 //
 // VL_ACCOUNT_ID+VL_PROJECT_ID or VL_TENANT_ID is used for providing henaders (AccountID, ProjectID) for VictoriaLogs.
-func SetupOTLP(ctx context.Context, serviceNameAtVersion string) (*otelslog.Handler, func(context.Context), error) {
+func SetupOTLP(ctx context.Context, serviceNameAtVersion string) (otelslogHandlerProvider, func(context.Context), error) {
 	logsURL := os.Getenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT")
 	if logsURL == "" {
-		return nil, nil, nil
+		return otelslogHandlerProvider{}, nil, nil
 	}
 	serviceName, serviceVersion, _ := strings.Cut(serviceNameAtVersion, "@")
 	resource, err := NewResource(serviceName, serviceVersion)
 	if err != nil {
-		return nil, nil, err
+		return otelslogHandlerProvider{}, nil, err
 	}
 	opts := []otlploghttp.Option{otlploghttp.WithEndpointURL(logsURL), nil, nil}[:1]
 	if acc, proj := os.Getenv("VL_ACCOUNT_ID"), os.Getenv("VL_PROJECT_ID"); acc != "" && proj != "" {
@@ -59,8 +59,16 @@ func SetupOTLP(ctx context.Context, serviceNameAtVersion string) (*otelslog.Hand
 	}
 	logExporter, err := otlploghttp.New(ctx, opts...)
 	if err != nil {
-		return nil, nil, err
+		return otelslogHandlerProvider{}, nil, err
 	}
 	lp := NewLoggerProvider(logExporter, resource)
-	return NewSLogHandler(serviceName, lp), func(context.Context) { lp.Shutdown(ctx); logExporter.Shutdown(ctx) }, nil
+	return otelslogHandlerProvider{
+		LoggerProvider: lp,
+		Handler:        NewSLogHandler(serviceName, lp),
+	}, func(context.Context) { lp.Shutdown(ctx); logExporter.Shutdown(ctx) }, nil
+}
+
+type otelslogHandlerProvider struct {
+	*otelslog.Handler
+	*LoggerProvider
 }
