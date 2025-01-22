@@ -16,7 +16,7 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
 )
 
-func NewSLogHandler(name string, lp *LoggerProvider, options ...otelslog.Option) slog.Handler {
+func NewSLogHandler(name string, lp *LoggerProvider, options ...otelslog.Option) *otelslog.Handler {
 	if lp != nil {
 		options = append(options, otelslog.WithLoggerProvider(lp))
 	}
@@ -38,7 +38,7 @@ func LogWithVersion(version string) otelslog.Option     { return otelslog.WithVe
 // iff OTEL_EXPORTER_OTLP_LOGS_ENDPOINT is specified.
 //
 // VL_ACCOUNT_ID+VL_PROJECT_ID or VL_TENANT_ID is used for providing henaders (AccountID, ProjectID) for VictoriaLogs.
-func SetupOTLP(ctx context.Context, serviceNameAtVersion string) (slog.Handler, func(context.Context), error) {
+func SetupOTLP(ctx context.Context, serviceNameAtVersion string) (*otelslog.Handler, func(context.Context), error) {
 	logsURL := os.Getenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT")
 	if logsURL == "" {
 		return nil, nil, nil
