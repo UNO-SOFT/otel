@@ -14,7 +14,7 @@ require (
 )
 
 require (
-	github.com/godror/godror v0.51.3
+	github.com/godror/godror v0.51.4
 	go.nhat.io/otelsql v0.16.0
 	go.opentelemetry.io/contrib/bridges/otelslog v0.20.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.70.0
